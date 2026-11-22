@@ -1,6 +1,6 @@
 {
   "name": "opencode-model-failover",
-  "version": "0.1.0",
+  "version": "0.1.10",
   "description": "Native model failover for OpenCode v2: move a failed session onto the next healthy model in a chain you define.",
   "type": "module",
   "main": "index.js",

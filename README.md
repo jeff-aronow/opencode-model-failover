@@ -176,6 +176,8 @@ Typical lines:
 
 - Targets **OpenCode v2** (the `plugins` config key and the `id`/`setup` plugin
   definition). OpenCode v1 used a different plugin API and is not supported.
+- Prompt replay reads both transcript shapes `ctx.session.context()` has
+  returned: v2 rows `{type, text}` and older `{role, parts}` rows.
 - No runtime dependencies. Only `node:` builtins are imported.
 
 ## Prereleases

@@ -233,6 +233,27 @@ test("replays the last user message when autoRetry is on", async (t) => {
   assert.deepEqual(calls.prompt[0], { sessionID: "s1", text: "second prompt" });
 });
 
+test("replays the last user message from v2 context rows", async (t) => {
+  const logFile = mkLog();
+  const { calls, push } = await start(
+    t,
+    { fallbackModels: ["a/one"], autoRetry: true, notify: false, logFile },
+    {
+      models: ["a/one"],
+      transcript: [
+        { type: "user", text: "first prompt" },
+        { type: "assistant", text: "a reply" },
+        { type: "user", text: "second prompt" },
+      ],
+    },
+  );
+
+  push(failedEvent("s1", { type: "provider.rateLimit", message: "429" }));
+  await waitFor(() => calls.prompt.length === 1);
+
+  assert.deepEqual(calls.prompt[0], { sessionID: "s1", text: "second prompt" });
+});
+
 test("advances to the next chain entry after each inference failure", async (t) => {
   const logFile = mkLog();
   const { calls, push } = await start(

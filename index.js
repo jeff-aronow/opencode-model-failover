@@ -66,14 +66,18 @@ export default {
       const rows = Array.isArray(messages) ? messages : [];
       for (let i = rows.length - 1; i >= 0; i--) {
         const row = rows[i] || {};
-        const role = row.role || row.info?.role;
+        // v2 context rows are {type: "user" | "assistant", text}; v1 rows are
+        // {role, parts}. Read whichever arrived.
+        const role = row.role || row.info?.role || row.type;
         if (role !== "user") continue;
         const parts = row.parts || row.info?.parts || [];
-        const text = parts
-          .filter((p) => p && p.type === "text" && typeof p.text === "string")
-          .map((p) => p.text)
-          .join("\n")
-          .trim();
+        const text =
+          (typeof row.text === "string" && row.text.trim()) ||
+          parts
+            .filter((p) => p && p.type === "text" && typeof p.text === "string")
+            .map((p) => p.text)
+            .join("\n")
+            .trim();
         if (text) return text;
       }
       return "";
