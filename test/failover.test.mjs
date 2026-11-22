@@ -154,6 +154,23 @@ test("does nothing when no model in the chain is available", async (t) => {
   assert.equal(calls.switchModel.length, 0);
 });
 
+test("accepts a config model key when its provider is configured", async (t) => {
+  const logFile = mkLog();
+  const { calls, push } = await start(
+    t,
+    { fallbackModels: ["a/custom-key"], notify: false, logFile },
+    { models: ["a/real-model-id"] },
+  );
+
+  push(failedEvent("s1", { type: "provider.rateLimit", message: "429" }));
+  await waitFor(() => calls.switchModel.length === 1);
+
+  assert.deepEqual(calls.switchModel[0], {
+    sessionID: "s1",
+    model: { providerID: "a", id: "custom-key" },
+  });
+});
+
 test("cools a model down after switchModel throws", async (t) => {
   const logFile = mkLog();
   const { calls, push } = await start(

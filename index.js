@@ -56,10 +56,27 @@ export default {
       try {
         const listed = await ctx.model.list();
         const rows = listed && Array.isArray(listed.data) ? listed.data : [];
-        return new Set(rows.map((m) => `${m.providerID}/${m.modelID}`));
+        const refs = new Set();
+        for (const m of rows) {
+          if (!m?.providerID) continue;
+          if (m.modelID) refs.add(`${m.providerID}/${m.modelID}`);
+          if (m.id) refs.add(`${m.providerID}/${m.id}`);
+        }
+        const providers = new Set(rows.map((m) => m?.providerID).filter(Boolean));
+        return { refs, providers };
       } catch {
-        return new Set();
+        return { refs: new Set(), providers: new Set() };
       }
+    }
+
+    function isAvailable({ refs, providers }, ref) {
+      if (refs.has(ref)) return true;
+      // A config model key (for example `ollama/gemma-4-12b-qat`) resolves at
+      // run time but never appears in the catalog, which only lists modelIDs.
+      // Accept it when its provider is configured; a bad key fails the switch,
+      // which already cools the entry down instead of burning an attempt.
+      const providerID = splitRef(ref)?.providerID;
+      return Boolean(providerID) && providers.has(providerID);
     }
 
     function lastUserText(messages) {
@@ -99,14 +116,17 @@ export default {
       // session that started on chain[0]).
       if (selected) tried.add(selected);
       log(
-        `availability=${set.size} models; already tried=${tried.size}; looking for next in chain`,
+        `availability=${set.refs.size} models; already tried=${tried.size}; looking for next in chain`,
       );
       // Skip what the session is already on and what this failure sequence
       // has already moved to, otherwise the first available entry is picked
       // forever and later providers are never reached.
       const next = chain.find(
         (ref) =>
-          set.has(ref) && (cooldown.get(ref) || 0) <= now && !tried.has(ref) && ref !== selected,
+          isAvailable(set, ref) &&
+          (cooldown.get(ref) || 0) <= now &&
+          !tried.has(ref) &&
+          ref !== selected,
       );
       if (!next) {
         log("no available model left in chain");
