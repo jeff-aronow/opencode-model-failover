@@ -87,9 +87,10 @@ function modelSelectedEvent(sessionID, model) {
 
 async function start(t, options, cfg = {}) {
   const stream = createEventStream();
-  const calls = { switchModel: [], prompt: [], context: 0, list: 0 };
+  const calls = { switchModel: [], prompt: [], context: 0, list: 0, get: 0 };
   const ctx = {
     options,
+    location: cfg.location === undefined ? undefined : { directory: cfg.location },
     model: {
       list: async () => {
         calls.list += 1;
@@ -97,6 +98,11 @@ async function start(t, options, cfg = {}) {
       },
     },
     session: {
+      get: async () => {
+        calls.get += 1;
+        if (cfg.onGet) await cfg.onGet();
+        return { data: { location: { directory: cfg.sessionLocation } } };
+      },
       switchModel: async (args) => {
         calls.switchModel.push(args);
         if (cfg.onSwitch) await cfg.onSwitch(args);
@@ -400,4 +406,95 @@ test("never returns to the model that just failed", async (t) => {
     calls.switchModel.map((c) => c.model.id),
     ["two", "three"],
   );
+});
+
+test("only the instance whose location owns the session fails over", async (t) => {
+  const logFile = mkLog();
+  const { calls, push } = await start(
+    t,
+    { fallbackModels: ["a/one"], autoRetry: true, notify: false, logFile },
+    {
+      models: ["a/one"],
+      location: "/work/profile",
+      sessionLocation: "/work/profile",
+      transcript: [{ type: "user", text: "the prompt" }],
+    },
+  );
+
+  push(failedEvent("s1", { type: "provider.rateLimit", message: "429" }));
+  await waitFor(() => calls.prompt.length === 1);
+
+  assert.equal(calls.switchModel.length, 1);
+  assert.equal(calls.prompt.length, 1);
+  assert.equal(calls.get, 1);
+});
+
+test("an instance for another location does nothing", async (t) => {
+  const logFile = mkLog();
+  const { calls, push } = await start(
+    t,
+    { fallbackModels: ["a/one"], autoRetry: true, notify: false, logFile },
+    {
+      models: ["a/one"],
+      location: "/work/profile/kimaki/projects/kimaki",
+      sessionLocation: "/work/profile",
+      transcript: [{ type: "user", text: "the prompt" }],
+    },
+  );
+
+  push(failedEvent("s1", { type: "provider.rateLimit", message: "429" }));
+  await waitFor(() => readLog(logFile).includes("belongs to another location"));
+
+  assert.equal(calls.switchModel.length, 0);
+  assert.equal(calls.prompt.length, 0);
+});
+
+test("acts when the session location is unknown", async (t) => {
+  const logFile = mkLog();
+  const { calls, push } = await start(
+    t,
+    { fallbackModels: ["a/one"], notify: false, logFile },
+    { models: ["a/one"], location: "/work/profile" },
+  );
+
+  push(failedEvent("s1", { type: "provider.rateLimit", message: "429" }));
+  await waitFor(() => calls.switchModel.length === 1);
+
+  assert.equal(calls.switchModel.length, 1);
+});
+
+test("acts when the location lookup throws", async (t) => {
+  const logFile = mkLog();
+  const { calls, push } = await start(
+    t,
+    { fallbackModels: ["a/one"], notify: false, logFile },
+    {
+      models: ["a/one"],
+      location: "/work/profile",
+      sessionLocation: "/work/profile",
+      onGet: () => {
+        throw new Error("not found");
+      },
+    },
+  );
+
+  push(failedEvent("s1", { type: "provider.rateLimit", message: "429" }));
+  await waitFor(() => calls.switchModel.length === 1);
+
+  assert.ok(readLog(logFile).includes("assuming owner"));
+});
+
+test("acts when the instance location is unknown", async (t) => {
+  const logFile = mkLog();
+  const { calls, push } = await start(
+    t,
+    { fallbackModels: ["a/one"], notify: false, logFile },
+    { models: ["a/one"], sessionLocation: "/work/profile" },
+  );
+
+  push(failedEvent("s1", { type: "provider.rateLimit", message: "429" }));
+  await waitFor(() => calls.switchModel.length === 1);
+
+  assert.equal(calls.get, 0);
+  assert.equal(calls.switchModel.length, 1);
 });

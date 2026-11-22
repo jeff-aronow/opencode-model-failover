@@ -100,6 +100,27 @@ export default {
       return "";
     }
 
+    // v2 loads one plugin instance per location (the global profile plus every
+    // registered project), and every event reaches all of them. Without this
+    // guard one failure switches the model and replays the prompt once per
+    // instance. Only the instance whose location owns the session acts; an
+    // unknown location on either side means "assume owner" so a single-location
+    // setup, or a failed lookup, keeps working.
+    async function ownsSession(sessionID) {
+      const mine = ctx.location?.directory;
+      if (!mine) return true;
+      if (typeof ctx.session.get !== "function") return true;
+      try {
+        const got = await ctx.session.get({ sessionID });
+        const theirs = (got && (got.data || got).location?.directory) || "";
+        if (!theirs) return true;
+        return theirs === mine;
+      } catch (e) {
+        log(`session.get failed for ${sessionID}, assuming owner: ${e?.message}`);
+        return true;
+      }
+    }
+
     async function failover(sessionID, error) {
       const used = attempts.get(sessionID) || 0;
       if (used >= maxAttempts) {
@@ -216,6 +237,10 @@ export default {
 
           busy.add(sid);
           try {
+            if (!(await ownsSession(sid))) {
+              log(`session ${sid} belongs to another location, skipping`);
+              continue;
+            }
             await failover(sid, error);
           } finally {
             busy.delete(sid);

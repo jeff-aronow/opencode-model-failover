@@ -116,7 +116,9 @@ ctx.event.subscribe({ signal })
 // session.deleted                 -> { data: { sessionID } }
 ```
 
-On a retryable `session.execution.failed` it:
+On a retryable `session.execution.failed` it first confirms the session
+belongs to this plugin instance's location (see
+[One instance per location](#one-instance-per-location)), then:
 
 1. reads the models that actually resolve with `ctx.model.list()`;
 2. picks the first chain entry that resolves, is not cooling down, is not the
@@ -151,6 +153,26 @@ it every failure re-selected the first available entry.
 
 The `id`/`setup` plugin shape, the `plugins` config key, and the methods above
 are the whole v2 surface it uses.
+
+### One instance per location
+
+A config plugin is set up once per location the server knows: the global
+profile plus every registered project directory. Every event reaches all
+instances, so without a guard a single failure switches the model and replays
+the prompt once per instance.
+
+Each instance therefore compares its own `ctx.location.directory` with the
+location of the session it is about to handle:
+
+```js
+const mine = ctx.location?.directory;
+const theirs = (await ctx.session.get({ sessionID })).data.location?.directory;
+if (mine && theirs && mine !== theirs) return; // not mine
+```
+
+An unknown location on either side, or a failed lookup, means "assume owner",
+so single-location setups and older servers behave exactly as before. The
+matched instance logs `belongs to another location, skipping` for the rest.
 
 ## Observing it
 
